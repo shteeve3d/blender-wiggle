@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle Bone",
     "author": "Steve Miller",
-    "version": (1, 4, 2),
+    "version": (1, 4, 3),
     "blender": (2, 80, 0),
     "location": "Properties > Bone",
     "description": "Simulates simple jiggle physics on bones",
@@ -58,8 +58,8 @@ def jiggle_list_refresh_ui(self,context):
                 b['loc_start'] = b.location.copy()
             
     #apply to other selected colliders:
-    a = bpy.context.object
-    if a.type == 'EMPTY':
+    a = bpy.context.active_object
+    if a and a.type == 'EMPTY':
         for b in bpy.context.selected_objects:
             if not b == a and b.type == 'EMPTY':
                 b.jiggle_collider_enable = a.jiggle_collider_enable
@@ -975,6 +975,7 @@ def register():
 #    bpy.app.handlers.frame_change_post.clear()
 #    bpy.app.handlers.render_pre.clear()
 #    bpy.app.handlers.render_post.clear()
+    
     bpy.app.handlers.frame_change_pre.append(jiggle_bone_pre)
     bpy.app.handlers.frame_change_post.append(jiggle_bone_post)
     bpy.app.handlers.render_pre.append(jiggle_render)
@@ -998,13 +999,9 @@ def unregister():
 if __name__ == "__main__":
     register()
 
-#1.4.2 CHANGELOG
+#1.4.3 CHANGELOG
 
-#feature: object level jiggle enabling
-#feature: feedback in UI if bone is disabled on either the armature or scene level
-#feature: bake jiggle button: automates pushing current action into nla, baking wiggle as additive layer on top, disabling dynamic jiggle for armature
-#bugfix: better context check for drawing wiggle panel
-#bugfix: jiggle code is blocked from running when rendering, hopefully helps with crashes
+#bugfix: context.object is 'None' when queried from properties panel
 
 #TODO
 #   -stabilize/verify f12 renders
