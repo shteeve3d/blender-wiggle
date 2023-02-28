@@ -19,6 +19,7 @@ skip = False
 render = False
 curframe = None
 skip_jiggle = False
+skip_handler = False
 
 ######## NEW STUFF STARTS ############################################
 #Consider replacing generic python object with an actual node that doesn't need to be converted to dict on each access:
@@ -823,18 +824,22 @@ def jiggle_pre(self):
 def jiggle_post(self,depsgraph):
     global curframe 
     global render
-    global skip
+    global skip_handler
     global skip_jiggle
     #print("%s %s" %(depsgraph.view_layer.name, bpy.context.view_layer.name))
-    if (skip):
+    if (skip_handler):
         return
-    skip = True
+    skip_handler = True
     if (depsgraph.view_layer.name == bpy.context.view_layer.name):
         bpy.context.scene.frame_set(bpy.context.scene.frame_current)
                 
         if bpy.context.screen.is_animation_playing and curframe and (abs(bpy.context.scene.frame_current - curframe) > 10):
-            skip_jiggle = True
-            print('anim drop')
+            if (abs(bpy.context.scene.frame_current - curframe) > (bpy.context.scene.frame_end - bpy.context.scene.frame_start - 10)) and not bpy.context.scene.jiggle_reset:
+                print('looping')
+                skip_jiggle = False
+            else:
+                skip_jiggle = True
+                print('anim drop')
         elif (bpy.context.screen.is_animation_playing == False) and curframe and (bpy.context.scene.frame_current != curframe+1):
             skip_jiggle = True
             #print('scrubbing')
@@ -848,7 +853,7 @@ def jiggle_post(self,depsgraph):
             
         jiggle_tree = bpy.context.scene['jiggle_tree'].to_dict()
         jiggle_tree_post2(jiggle_tree) 
-    skip = False     
+    skip_handler = False     
                 
 ######## NEW STUFF ENDS #######################################################################
         
