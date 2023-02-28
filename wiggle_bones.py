@@ -897,7 +897,7 @@ class bake_jiggle(bpy.types.Operator):
                     bpy.ops.id.reset_wiggle()
                     
         #bake bones - start to end, active bones, don't clear constraints
-        bpy.ops.nla.bake(frame_start = context.scene.frame_start, frame_end = context.scene.frame_end)
+        bpy.ops.nla.bake(frame_start = context.scene.frame_start, frame_end = context.scene.frame_end, visual_keying=True)
         
         #turn off dynamics according to bpy.context.scene.jiggle_disable_mask
         mask = context.scene.jiggle_disable_mask
