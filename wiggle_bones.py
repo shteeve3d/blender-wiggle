@@ -18,6 +18,7 @@ import json
 skip = False 
 render = False
 curframe = None
+skip_jiggle = False
 
 ######## NEW STUFF STARTS ############################################
 #Consider replacing generic python object with an actual node that doesn't need to be converted to dict on each access:
@@ -598,7 +599,8 @@ def jiggle_bone_pre(b):
     except:
         b['rot_col'] = None
         
-def jiggle_bone_post(b, new_b_mat):  
+def jiggle_bone_post(b, new_b_mat): 
+    global skip_jiggle 
     
 #    rate = bpy.context.scene.render.fps/bpy.context.scene.render.fps_base/24
     rate = bpy.context.scene.jiggle_rate
@@ -661,7 +663,7 @@ def jiggle_bone_post(b, new_b_mat):
     local_spring = t2.to_quaternion().to_matrix().to_4x4().inverted() @ Matrix.Translation(b.jiggle_spring2)
     
     #first frame or inactive should not consider any previous frame
-    if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or not b.jiggle_active:
+    if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or skip_jiggle or not b.jiggle_active:
         vec = Vector((0,0,0))
         vecy = 0
         deltarot = Vector((0,0,0))
@@ -760,6 +762,7 @@ def jiggle_tree_pre(jiggle_tree,ob=None):
 
 #post assumes pre has ensured jiggle tree items exist?                  
 def jiggle_tree_post2(jiggle_tree, ob=None, parent=None, new_parent_mat=None):
+    global skip_jiggle
     if bpy.context.scene.jiggle_enable:
         
         if bpy.context.scene.jiggle_use_fps_scale:
@@ -780,7 +783,7 @@ def jiggle_tree_post2(jiggle_tree, ob=None, parent=None, new_parent_mat=None):
                     new_b_mat = b.matrix
                 new_p_mat = jiggle_bone_post(b, new_b_mat) #jiggle_bone_post should be updated to do all calcs on new_b_mat
                 jiggle_tree_post2(jiggle_tree[item]['children'], ob, b, new_p_mat)
-                if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or not b.jiggle_enable: #if not jiggle enabled, it not it the list so this seems pointless?
+                if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or skip_jiggle or not b.jiggle_enable: #if not jiggle enabled, it not it the list so this seems pointless?
                     b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
                     
 def reset_jiggle_tree(jiggle_tree, ob=None):
@@ -805,28 +808,56 @@ def reset_jiggle_tree(jiggle_tree, ob=None):
 @persistent
 def jiggle_pre(self):
     global curframe
+
     try:
         jiggle_tree = bpy.context.scene['jiggle_tree'].to_dict()
     except:
         generate_jiggle_tree()
         jiggle_tree = bpy.context.scene['jiggle_tree'].to_dict()
-    if (bpy.context.scene.frame_current != curframe):
-        jiggle_tree_pre(jiggle_tree)
+        
+    jiggle_tree_pre(jiggle_tree)
+            
+            
 
 @persistent
 def jiggle_post(self,depsgraph):
-    global curframe
+    global curframe 
+    global render
+    global skip
+    global skip_jiggle
+    #print("%s %s" %(depsgraph.view_layer.name, bpy.context.view_layer.name))
+    if (skip):
+        return
+    skip = True
     if (depsgraph.view_layer.name == bpy.context.view_layer.name):
+        bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+                
+        if bpy.context.screen.is_animation_playing and curframe and (abs(bpy.context.scene.frame_current - curframe) > 10):
+            skip_jiggle = True
+            print('anim drop')
+        elif (bpy.context.screen.is_animation_playing == False) and curframe and (bpy.context.scene.frame_current != curframe+1):
+            skip_jiggle = True
+            #print('scrubbing')
+        else:
+            skip_jiggle = False
+            #print('jiggling')
+            #print(bpy.context.screen.is_animation_playing)
+            
         curframe = bpy.context.scene.frame_current
-        print("post %d %d" %(curframe, bpy.context.scene.frame_current))
+        #print("post %d %d" %(curframe, bpy.context.scene.frame_current))
+            
         jiggle_tree = bpy.context.scene['jiggle_tree'].to_dict()
-        jiggle_tree_post2(jiggle_tree)      
+        jiggle_tree_post2(jiggle_tree) 
+    skip = False     
                 
 ######## NEW STUFF ENDS #######################################################################
         
 @persistent
 def jiggle_render(self):
     global render
+    print("render triggered frame %d" %bpy.context.scene.frame_current)
+    #bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+    #bpy.context.view_layer.update()
     render = True
     
 @persistent
