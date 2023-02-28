@@ -564,7 +564,7 @@ def reset_bone(b):
 ######## NEW STUFF STARTS #######################################################################
 
 def jiggle_bone_pre(b):
-    b.scale.y = Vector(b['scale_start']).y
+    #b.scale.y = Vector(b['scale_start']).y
     if b.rotation_mode == 'QUATERNION':
         try:
             b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
@@ -579,7 +579,11 @@ def jiggle_bone_pre(b):
         try:
             b.location = b['loc_start']
         except:
-            b['loc_start'] = b.location
+            b['loc_start'] = b.location.copy()
+    try:
+        b.scale = b['scale_start']
+    except:
+            b['scale_start'] = b.scale.copy()
     try:
         test = b['rot1']
     except:
