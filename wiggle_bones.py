@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle Bone",
     "author": "Steve Miller",
-    "version": (1, 2),
+    "version": (1, 2, 1),
     "blender": (2, 80, 0),
     "location": "Properties > Bone",
     "description": "Simulates simple jiggle physics on bones",
@@ -145,45 +145,47 @@ def jiggle_bone(b):
     else:
         b.rotation_euler = rotation_euler
 
-    b.scale.y = 1-vecy*b.jiggle_stretch
+    b.scale.y = b.scale.y*(1-vecy*b.jiggle_stretch)
     
 
 @persistent
 def jiggle_bone_pre(self):
-    for item in bpy.context.scene.jiggle_list:
-        if bpy.data.objects.find(item.name) >= 0:
-            ob = bpy.data.objects[item.name]
-            if ob.type == 'ARMATURE':
-                for item2 in ob.jiggle_list:
-                    if ob.pose.bones.find(item2.name) >= 0:
-                        b = ob.pose.bones[item2.name]
-                        if b.jiggle_enable:
-                            b.scale.y = 1
-                            if b.rotation_mode == 'QUATERNION':
-                                try:
-                                    b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
-                                except:
-                                    b['rot_start'] = b.rotation_quaternion.copy().to_euler()
-                            else:
-                                try:
-                                    b.rotation_euler = Euler(b['rot_start'])
-                                except:
-                                    b['rot_start'] = b.rotation_euler.copy()
+    if bpy.context.scene.jiggle_enable:
+        for item in bpy.context.scene.jiggle_list:
+            if bpy.data.objects.find(item.name) >= 0:
+                ob = bpy.data.objects[item.name]
+                if ob.type == 'ARMATURE':
+                    for item2 in ob.jiggle_list:
+                        if ob.pose.bones.find(item2.name) >= 0:
+                            b = ob.pose.bones[item2.name]
+                            if b.jiggle_enable:
+                                b.scale.y = 1
+                                if b.rotation_mode == 'QUATERNION':
+                                    try:
+                                        b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
+                                    except:
+                                        b['rot_start'] = b.rotation_quaternion.copy().to_euler()
+                                else:
+                                    try:
+                                        b.rotation_euler = Euler(b['rot_start'])
+                                    except:
+                                        b['rot_start'] = b.rotation_euler.copy()
 
 @persistent                
 def jiggle_bone_post(self):
-    for item in bpy.context.scene.jiggle_list:
-        if bpy.data.objects.find(item.name) >= 0:
-            ob = bpy.data.objects[item.name]
-            if ob.type == 'ARMATURE':
-                for item2 in ob.jiggle_list:
-                    if ob.pose.bones.find(item2.name) >= 0:
-                        b = ob.pose.bones[item2.name]
-                        if b.jiggle_enable:
-                            jiggle_bone(b)
-                            #grab copy of matrix on late update of first frame (prevents freakouts on loop)
-                            if bpy.context.scene.frame_current == bpy.context.scene.frame_start:
-                                b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
+    if bpy.context.scene.jiggle_enable:
+        for item in bpy.context.scene.jiggle_list:
+            if bpy.data.objects.find(item.name) >= 0:
+                ob = bpy.data.objects[item.name]
+                if ob.type == 'ARMATURE':
+                    for item2 in ob.jiggle_list:
+                        if ob.pose.bones.find(item2.name) >= 0:
+                            b = ob.pose.bones[item2.name]
+                            if b.jiggle_enable:
+                                jiggle_bone(b)
+                                #grab copy of matrix on late update of first frame (prevents freakouts on loop)
+                                if bpy.context.scene.frame_current == bpy.context.scene.frame_start:
+                                    b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
     
 class JiggleBonePanel(bpy.types.Panel):
     bl_label = 'Wiggle Bone'
@@ -205,6 +207,17 @@ class JiggleBonePanel(bpy.types.Panel):
         layout.prop(b, 'jiggle_amplitude')
         layout.prop(b, 'jiggle_stretch')
         
+class JiggleScenePanel(bpy.types.Panel):
+    bl_label = 'Wiggle Scene'
+    bl_idname = 'OBJECT_PT_jiggle_scene_panel'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'scene'
+    
+    def draw(self,context):
+        layout = self.layout
+        layout.prop(context.scene, 'jiggle_enable')
+        
 class jiggle_bone_item(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
 
@@ -212,9 +225,15 @@ def register():
     
     bpy.utils.register_class(jiggle_bone_item)
     bpy.utils.register_class(JiggleBonePanel)
+    bpy.utils.register_class(JiggleScenePanel)
     
     bpy.types.PoseBone.jiggle_spring = bpy.props.FloatVectorProperty(default=Vector((0,0,0)))
     bpy.types.PoseBone.jiggle_velocity = bpy.props.FloatVectorProperty(default=Vector((0,0,0)))
+    bpy.types.Scene.jiggle_enable = bpy.props.BoolProperty(
+        name = 'Enabled:',
+        description = 'Global toggle for all jiggle bones',
+        default = False
+    )
     bpy.types.Scene.jiggle_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
     bpy.types.Object.jiggle_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
     bpy.types.PoseBone.jiggle_enable = bpy.props.BoolProperty(
@@ -248,8 +267,8 @@ def register():
         update = stretch_update
     )
     
-#    bpy.app.handlers.frame_change_pre.clear()
-#    bpy.app.handlers.frame_change_post.clear()
+    #bpy.app.handlers.frame_change_pre.clear()
+    #bpy.app.handlers.frame_change_post.clear()
     bpy.app.handlers.frame_change_pre.append(jiggle_bone_pre)
     bpy.app.handlers.frame_change_post.append(jiggle_bone_post)
 
