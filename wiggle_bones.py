@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle Bone",
     "author": "Steve Miller",
-    "version": (1, 4, 1),
+    "version": (1, 4, 2),
     "blender": (2, 80, 0),
     "location": "Properties > Bone",
     "description": "Simulates simple jiggle physics on bones",
@@ -15,6 +15,7 @@ from mathutils import Vector,Matrix,Euler,Quaternion
 from bpy.app.handlers import persistent
 
 skip = False 
+render = False
 
 #returns name of parent in jiggle list or None
 def check_parent(b, list):
@@ -73,7 +74,7 @@ def jiggle_list_refresh_ui(self,context):
     #iterate through all objects and bones to construct jiggle lists
     bpy.context.scene.jiggle_list.clear()
     for ob in bpy.context.scene.objects:
-        if ob.type == 'ARMATURE':
+        if ob.type == 'ARMATURE' and ob.data.jiggle_enable:
             ob.jiggle_list.clear()
             for b in ob.pose.bones:
                 if b.jiggle_enable:
@@ -642,69 +643,126 @@ def jiggle_bone(b,self):
 
 @persistent
 def jiggle_bone_pre(self):
-    if bpy.context.scene.jiggle_enable:
-        for item in bpy.context.scene.jiggle_list:
-            if bpy.data.objects.find(item.name) >= 0:
-                ob = bpy.data.objects[item.name]
-                if ob.type == 'ARMATURE':
-                    for item2 in ob.jiggle_list:
-                        if ob.pose.bones.find(item2.name) >= 0:
-                            b = ob.pose.bones[item2.name]
-                            if b.jiggle_enable:
-                                b.scale.y = 1
-                                if b.rotation_mode == 'QUATERNION':
+    global render
+    if not render:
+        if bpy.context.scene.jiggle_enable:
+            for item in bpy.context.scene.jiggle_list:
+                if bpy.data.objects.find(item.name) >= 0:
+                    ob = bpy.data.objects[item.name]
+                    if ob.type == 'ARMATURE':# and ob.data.jiggle_enable:
+                        for item2 in ob.jiggle_list:
+                            if ob.pose.bones.find(item2.name) >= 0:
+                                b = ob.pose.bones[item2.name]
+                                if b.jiggle_enable:
+                                    b.scale.y = 1
+                                    if b.rotation_mode == 'QUATERNION':
+                                        try:
+                                            b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
+                                        except:
+                                            b['rot_start'] = b.rotation_quaternion.copy().to_euler()
+                                    else:
+                                        try:
+                                            b.rotation_euler = Euler(b['rot_start'])
+                                        except:
+                                            b['rot_start'] = b.rotation_euler.copy()
+                                    if b.jiggle_translation != 0:
+                                        try:
+                                            b.location = b['loc_start']
+                                        except:
+                                            b['loc_start'] = b.location
                                     try:
-                                        b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
+                                        test = b['rot1']
                                     except:
-                                        b['rot_start'] = b.rotation_quaternion.copy().to_euler()
-                                else:
+                                        b['rot1'] = (b.id_data.matrix_world @ b.matrix).to_quaternion()
                                     try:
-                                        b.rotation_euler = Euler(b['rot_start'])
+                                        test = b['t1']
                                     except:
-                                        b['rot_start'] = b.rotation_euler.copy()
-                                if b.jiggle_translation != 0:
+                                        b['t1'] = (b.id_data.matrix_world @ b.matrix)
                                     try:
-                                        b.location = b['loc_start']
+                                        test = b['rot_col']
                                     except:
-                                        b['loc_start'] = b.location
-                                try:
-                                    test = b['rot1']
-                                except:
-                                    b['rot1'] = (b.id_data.matrix_world @ b.matrix).to_quaternion()
-                                try:
-                                    test = b['t1']
-                                except:
-                                    b['t1'] = (b.id_data.matrix_world @ b.matrix)
-                                try:
-                                    test = b['rot_col']
-                                except:
-                                    b['rot_col'] = None
-                        else: #bone has disappeared from scene jiggle list; recalculate
-                            jiggle_list_refresh_ui(self,bpy.context)
-            else: #object has disappeared from scene jiggle list, recalculate
-                jiggle_list_refresh_ui(self,bpy.context)
+                                        b['rot_col'] = None
+                            else: #bone has disappeared from scene jiggle list; recalculate
+                                jiggle_list_refresh_ui(self,bpy.context)
+                else: #object has disappeared from scene jiggle list, recalculate
+                    jiggle_list_refresh_ui(self,bpy.context)
 
 @persistent                
 def jiggle_bone_post(self):
-    #global colliders
-    #jiggle the relevant bones
-    if bpy.context.scene.jiggle_enable:
-        for item in bpy.context.scene.jiggle_list:
-            if bpy.data.objects.find(item.name) >= 0:
-                ob = bpy.data.objects[item.name]
-                if ob.type == 'ARMATURE':
-                    for item2 in ob.jiggle_list:
-                        if ob.pose.bones.find(item2.name) >= 0:
-                            b = ob.pose.bones[item2.name]
-                            if b.jiggle_enable:
-                                jiggle_bone(b,self)
-                                #grab copy of matrix on late update of first frame (prevents freakouts on loop)
-                                if bpy.context.scene.frame_current == bpy.context.scene.frame_start:
-                                    b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
-    #store 'last' matrix for all colliders
-    for c in bpy.context.scene.jiggle_collider_list:
-        c = bpy.context.scene.objects[c.name]
-        c['last'] = c.matrix_world.copy()
+    global render
+    if not render:
+        #print(bpy.context.scene.frame_current)
+        #global colliders
+        #jiggle the relevant bones
+        if bpy.context.scene.jiggle_enable:
+            for item in bpy.context.scene.jiggle_list:
+                if bpy.data.objects.find(item.name) >= 0:
+                    ob = bpy.data.objects[item.name]
+                    if ob.type == 'ARMATURE':# and ob.data.jiggle_enable:
+                        for item2 in ob.jiggle_list:
+                            if ob.pose.bones.find(item2.name) >= 0:
+                                b = ob.pose.bones[item2.name]
+                                if b.jiggle_enable:
+                                    jiggle_bone(b,self)
+                                    print(b.rotation_quaternion)
+                                    b['jigg'] = b.matrix.copy()
+                                    #grab copy of matrix on late update of first frame (prevents freakouts on loop)
+                                    if bpy.context.scene.frame_current == bpy.context.scene.frame_start:
+                                        b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
+        #store 'last' matrix for all colliders
+        for c in bpy.context.scene.jiggle_collider_list:
+            c = bpy.context.scene.objects[c.name]
+            c['last'] = c.matrix_world.copy()
+    #print("jiggle post complete")
+        
+@persistent
+def jiggle_render(self):
+    global render
+    #print("jiggle render!")
+    #jiggle_bone_pre(self)
+    #jiggle_bone_post(self)
+    #f = bpy.context.scene.frame_current
+    #bpy.context.scene.frame_set(f)
+    render = True
+    
+@persistent
+def render_post(self):
+    global render
+    render = False
+    
+        
+class bake_jiggle(bpy.types.Operator):
+    """Bake wiggle dynamics on selected bones"""
+    bl_idname = "id.bake_wiggle"
+    bl_label = "Bake Wiggle"
+    
+    @classmethod
+    def poll(cls, context):
+        return True
+    
+    def execute(self,context):
+        ob = context.object
+        #push active action into nla
+        bpy.context.area.type = "NLA_EDITOR"
+        bpy.ops.nla.action_pushdown(channel_index=1)
+        #set animation slot to additive
+        ob.animation_data.action_blend_type = 'ADD'
+        #bake bones - start to end, active bones, don't clear constraints
+        bpy.ops.nla.bake(frame_start = context.scene.frame_start, frame_end = context.scene.frame_end)
+        #turn off dynamics according to bpy.context.scene.jiggle_disable_mask
+        mask = context.scene.jiggle_disable_mask
+        #context.object.data.jiggle_enable = False
+        if mask == 'BONES':
+            for b in bpy.context.selected_pose_bones:
+                b.jiggle_enable = False
+        elif mask == 'ARMATURE':
+            context.object.data.jiggle_enable = False
+        elif mask == 'SCENE':
+            context.scene.jiggle_enable = False
+        else:
+            print("shouldn't get here")
+        bpy.context.area.type = "PROPERTIES"
+        return {'FINISHED'}
     
 class JiggleBonePanel(bpy.types.Panel):
     bl_label = 'Wiggle Bone'
@@ -715,18 +773,24 @@ class JiggleBonePanel(bpy.types.Panel):
     
     @classmethod
     def poll(cls, context):
-        return (context.object is not None and context.object.type == 'ARMATURE')
+        return (context.object is not None and context.object.type == 'ARMATURE' and context.mode == 'POSE')
     
     def draw_header(self,context):
         b = context.active_pose_bone
         self.layout.prop(b, 'jiggle_enable', text="")
+        self.layout.enabled = context.object.data.jiggle_enable and context.scene.jiggle_enable
     
     def draw(self,context):
         layout = self.layout
         b = context.active_pose_bone
         #layout.prop(b, 'jiggle_enable')
-        layout.enabled = b.jiggle_enable
+        layout.enabled = b.jiggle_enable and context.object.data.jiggle_enable and context.scene.jiggle_enable
         col = layout.column()
+        if not context.object.data.jiggle_enable:
+            col.label(text="ARMATURE DISABLED.")
+            #col.label(text="See Armature Settings.")
+        if not context.scene.jiggle_enable:
+            col.label(text="SCENE DISABLED.")
         col.prop(b, 'jiggle_stiffness')
         col.prop(b,'jiggle_dampen')
         col.prop(b, 'jiggle_amplitude')
@@ -739,6 +803,9 @@ class JiggleBonePanel(bpy.types.Panel):
         col.prop(b, 'jiggle_collision_margin')
         col.prop(b, 'jiggle_collision_friction')
         col.enabled = b.jiggle_collision
+        layout.separator()
+        layout.operator("id.bake_wiggle")
+        layout.prop(context.scene,"jiggle_disable_mask")
         
 class JiggleScenePanel(bpy.types.Panel):
     bl_label = 'Wiggle Scene'
@@ -753,6 +820,24 @@ class JiggleScenePanel(bpy.types.Panel):
     def draw(self,context):
        layout = self.layout
 #        layout.prop(context.scene, 'jiggle_enable')
+
+class JiggleArmaturePanel(bpy.types.Panel):
+    bl_label = 'Wiggle Armature'
+    bl_idname = 'OBJECT_PT_jiggle_armature_panel'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'data'
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.object is not None and context.object.type == 'ARMATURE')
+    
+    def draw_header(self,context):
+        self.layout.prop(context.object.data, 'jiggle_enable', text="")
+        
+    def draw(self,context):
+        c = context.object
+        #layout = self.layout()
         
 class JiggleColliderPanel(bpy.types.Panel):
     bl_label = 'Wiggle Collider'
@@ -769,8 +854,8 @@ class JiggleColliderPanel(bpy.types.Panel):
         self.layout.prop(context.object, 'jiggle_collider_enable', text="")
     
     def draw(self,context):
-        layout = self.layout
-        #c = context.object
+        #layout = self.layout
+        c = context.object
         #layout.prop(c, 'jiggle_collider_enable')
         
 class jiggle_bone_item(bpy.types.PropertyGroup):
@@ -787,7 +872,9 @@ def register():
     bpy.utils.register_class(jiggle_collider_item)
     bpy.utils.register_class(JiggleBonePanel)
     bpy.utils.register_class(JiggleScenePanel)
+    bpy.utils.register_class(JiggleArmaturePanel)
     bpy.utils.register_class(JiggleColliderPanel)
+    bpy.utils.register_class(bake_jiggle)
     
     bpy.types.PoseBone.jiggle_spring = bpy.props.FloatVectorProperty(default=Vector((0,0,0)))
     bpy.types.PoseBone.jiggle_velocity = bpy.props.FloatVectorProperty(default=Vector((0,0,0)))
@@ -798,7 +885,20 @@ def register():
     bpy.types.Scene.jiggle_enable = bpy.props.BoolProperty(
         name = 'Enabled:',
         description = 'Global toggle for all jiggle bones',
-        default = True
+        default = True,
+        update = jiggle_list_refresh_ui
+    )
+    mask_enum = [
+        ('SCENE','Scene','scene mask'),
+        ('ARMATURE','Armature', 'armature mask'),
+        ('BONES','Bones', 'bones mask')
+    ]
+    bpy.types.Scene.jiggle_disable_mask = bpy.props.EnumProperty(items = mask_enum, name="Disable", default='BONES', description='What to disable after baking')
+    bpy.types.Armature.jiggle_enable = bpy.props.BoolProperty(
+        name = 'Enabled:',
+        description = 'Toggle Dynamic jiggle bones on this armature',
+        default = True,
+        update = jiggle_list_refresh_ui
     )
     bpy.types.Scene.jiggle_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
     bpy.types.Scene.jiggle_collider_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
@@ -873,35 +973,42 @@ def register():
     
 #    bpy.app.handlers.frame_change_pre.clear()
 #    bpy.app.handlers.frame_change_post.clear()
+#    bpy.app.handlers.render_pre.clear()
+#    bpy.app.handlers.render_post.clear()
     bpy.app.handlers.frame_change_pre.append(jiggle_bone_pre)
     bpy.app.handlers.frame_change_post.append(jiggle_bone_post)
+    bpy.app.handlers.render_pre.append(jiggle_render)
+    bpy.app.handlers.render_post.append(render_post)
 
 def unregister():
     bpy.utils.unregister_class(JiggleBonePanel)
     bpy.utils.unregister_class(JiggleScenePanel)
+    bpy.utils.unregister_class(JiggleArmaturePanel)
     bpy.utils.unregister_class(JiggleColliderPanel)
     bpy.utils.unregister_class(jiggle_bone_item)
     bpy.utils.unregister_class(jiggle_collider_item)
     
+    bpy.utils.unregister_class(bake_jiggle)
+    
     bpy.app.handlers.frame_change_pre.remove(jiggle_bone_pre)
     bpy.app.handlers.frame_change_post.remove(jiggle_bone_post)
+    bpy.app.handlers.render_pre.remove(jiggle_render)
+    bpy.app.handlers.render_post.remove(render_post)
 
 if __name__ == "__main__":
     register()
 
-#1.4 BETA CHANGELOG
+#1.4.2 CHANGELOG
 
-#bugfix: new_mat shouldn't include world transform
-#optimization: enable checkbox in panel header for more compact UI
-
-#collision!
-#   -spherical empties can be made colliders for now
-#   -collision can be enabled/disabled per bone
-#   -basic support for multiple colliders but finicky
-#   -bone collision friction control
-#   -collisions currently dampens all momentum, hopefully can be improved later
+#feature: object level jiggle enabling
+#feature: feedback in UI if bone is disabled on either the armature or scene level
+#feature: bake jiggle button: automates pushing current action into nla, baking wiggle as additive layer on top, disabling dynamic jiggle for armature
+#bugfix: better context check for drawing wiggle panel
+#bugfix: jiggle code is blocked from running when rendering, hopefully helps with crashes
 
 #TODO
+#   -stabilize/verify f12 renders
+#   -should only disable baked bones?
 
 #for 1.4:
 
@@ -921,7 +1028,6 @@ if __name__ == "__main__":
 #y-stretch should squash and stretch
 
 #lower priority:
-#object level enabled, allowing more granularity
 #cleaner code for property updates (one function for multiple properties)
 #performance tweak: only do context.update() on bones that have children
 #look into property groupings again (we're already using for c_items, right?)
