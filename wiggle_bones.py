@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle Bone",
     "author": "Steve Miller",
-    "version": (1, 3, 1),
+    "version": (1, 3, 2),
     "blender": (2, 80, 0),
     "location": "Properties > Bone",
     "description": "Simulates simple jiggle physics on bones",
@@ -176,8 +176,10 @@ def jiggle_bone(b):
     #translational vector without any previous jiggle (and y)
     t1 = Matrix(b['t1'])
     t2 = (b.id_data.matrix_world @ b.matrix)
-    t = relative_vector(t1, t2)
-    print(t)
+    t = relative_vector(t2, t1) #reversed so it is in the current frame's bone space?
+    #ideally world space:
+    t = t2.translation - t1.translation
+    #print(t)
     b['t1'] = t2
 
     #rotational input between frames
@@ -197,9 +199,12 @@ def jiggle_bone(b):
     b.jiggle_velocity = Vector(b.jiggle_velocity)*(1-b.jiggle_dampen)-tension*b.jiggle_stiffness + gvec*(1-b.jiggle_stiffness)
     b.jiggle_spring = tension+Vector(b.jiggle_velocity)
     
-    tension2 = Vector(b.jiggle_spring2)+t
+    tension2 = Vector(b.jiggle_spring2)-t
     b.jiggle_velocity2 = Vector(b.jiggle_velocity2)*(1-b.jiggle_dampen)-tension2*b.jiggle_stiffness
     b.jiggle_spring2 = tension2 + Vector(b.jiggle_velocity2)
+    #can this all be calculated/stored variables in world space, and then converted to bone space?
+    local_spring = t2.to_quaternion().to_matrix().to_4x4().inverted() @ Matrix.Translation(b.jiggle_spring2)
+    print(local_spring.translation)
     
     #first frame should not consider any previous frame
     if bpy.context.scene.frame_current == bpy.context.scene.frame_start:
@@ -218,7 +223,7 @@ def jiggle_bone(b):
     eulerRot = Euler((math.radians(Vector(b.jiggle_spring).z*-b.jiggle_amplitude), math.radians(Vector(b.jiggle_spring).y*-b.jiggle_amplitude),math.radians(Vector(b.jiggle_spring).x*+b.jiggle_amplitude)))
     
     #translation matrix
-    trans = Matrix.Translation(Vector(b.jiggle_spring2) * b.jiggle_translation)
+    trans = Matrix.Translation(local_spring.translation * b.jiggle_translation)
     #print(trans.translation)
     
         
@@ -232,6 +237,7 @@ def jiggle_bone(b):
         bpy.context.scene.update()    
         
     new_mat = b.matrix @ trans @ eulerRot.to_matrix().to_4x4()
+    new_mat = b.id_data.matrix_world @ b.matrix @ trans @ eulerRot.to_matrix().to_4x4() #forgot world transform!!
     
     b.matrix = new_mat
     b.scale.y = b.scale.y*(1-vecy*b.jiggle_stretch)
@@ -411,27 +417,28 @@ def unregister():
 if __name__ == "__main__":
     register()
 
-#1.3.1 CHANGELOG
+#1.3.2 CHANGELOG
 
-#jiggle translation for detached bones.
-
-#better handles bone constraints (previously, would additively re-apply constraints on every frame). seems to work well for 'child of' and 'copy rotation/location' with offsets. however overriding constraints like copy transform kill the jiggle effect
-
+#bone orientation should not affecting translational jiggle 
 
 #TODO
 
-#allow a jiggled position for disconnected child objects [DONE]
-#unkeyed translational 'start pos' [DONE]
+#for 1.4:
 
 #bake just jiggle to animation layer keyframes
+
+#for 1.5:
 
 #y-stretch should jiggle
 #y-stretch should squash and stretch
 
-#simple collision solution?
+#for 1.6:
+
+#any collision tools?
 
 #lower priority:
 #enabled button into wiggle bone, scene panel title for more compact ui
 #object level enabled, allowing more granularity
 #cleaner code for property updates (one function for multiple properties)
 #performance tweak: only do context.update() on bones that have children
+#any other cleanups
