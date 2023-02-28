@@ -586,11 +586,11 @@ def jiggle_bone_pre(b):
         b['rot_col'] = None
         
 def jiggle_bone_post(b, new_b_mat):  
+    
     #translational movement between frames in bone's >>previous<< orientation space
     vec = relative_vector(Matrix(b['jiggle_mat']), b.id_data.matrix_world @ new_b_mat) * -1
     vecy = vec.y
     vec.y = 0 #y translation shouldn't affect y rotation, but store it for scaling
-
     
     #translational vector without any previous jiggle (and y)
     t1 = Matrix(b['t1'])
@@ -669,7 +669,10 @@ def jiggle_bone_post(b, new_b_mat):
     #this is rotation if there was no collision
     eulerRot = Euler((math.radians(Vector(b.jiggle_spring).z*-b.jiggle_amplitude), math.radians(Vector(b.jiggle_spring).y*-b.jiggle_amplitude),math.radians(Vector(b.jiggle_spring).x*+b.jiggle_amplitude)))
     #translation matrix
-    trans = Matrix.Translation(local_spring.translation * b.jiggle_translation)
+    if not b.bone.use_connect:
+        trans = Matrix.Translation(local_spring.translation * b.jiggle_translation)
+    else:
+        trans = Matrix.Identity(4)
     #print(trans.translation)    
     
 #    #COLLISIONS!!!
