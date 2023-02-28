@@ -587,6 +587,10 @@ def jiggle_bone_pre(b):
         
 def jiggle_bone_post(b, new_b_mat):  
     
+#    rate = bpy.context.scene.render.fps/bpy.context.scene.render.fps_base/24
+    rate = bpy.context.scene.jiggle_rate
+    print(rate)
+    
     #translational movement between frames in bone's >>previous<< orientation space
     vec = relative_vector(Matrix(b['jiggle_mat']), b.id_data.matrix_world @ new_b_mat) * -1
     vecy = vec.y
@@ -634,16 +638,13 @@ def jiggle_bone_post(b, new_b_mat):
     #can i replace tension with just doing the jiggle spring? [yes]
     b.jiggle_spring = Vector(b.jiggle_spring)+vec+deltarot #input force
     b.jiggle_velocity = Vector(b.jiggle_velocity)*(1-b.jiggle_dampen)-Vector(b.jiggle_spring)*b.jiggle_stiffness + gvec*(1-b.jiggle_stiffness)
-    
-#    b.jiggle_spring = Vector(b.jiggle_spring)+gvec+vec+deltarot
-#    b.jiggle_velocity = (Vector(b.jiggle_velocity)*(1-b.jiggle_dampen)-Vector(b.jiggle_spring)*b.jiggle_stiffness)
-    b.jiggle_spring = Vector(b.jiggle_spring)+Vector(b.jiggle_velocity) #physics forces if no collision
+    b.jiggle_spring = Vector(b.jiggle_spring)+Vector(b.jiggle_velocity) / rate #physics forces if no collision
     
     
     #for translational tension and jiggle
     tension2 = Vector(b.jiggle_spring2)-t
     b.jiggle_velocity2 = Vector(b.jiggle_velocity2)*(1-b.jiggle_dampen)-tension2*b.jiggle_stiffness
-    b.jiggle_spring2 = tension2 + Vector(b.jiggle_velocity2)
+    b.jiggle_spring2 = tension2 + Vector(b.jiggle_velocity2) / rate
     #can this all be calculated/stored variables in world space, and then converted to bone space?
     local_spring = t2.to_quaternion().to_matrix().to_4x4().inverted() @ Matrix.Translation(b.jiggle_spring2)
     
@@ -667,7 +668,7 @@ def jiggle_bone_post(b, new_b_mat):
 
     #rotation is set via matrix so it can be applied locally before animated orientation changes)
     #this is rotation if there was no collision
-    eulerRot = Euler((math.radians(Vector(b.jiggle_spring).z*-b.jiggle_amplitude), math.radians(Vector(b.jiggle_spring).y*-b.jiggle_amplitude),math.radians(Vector(b.jiggle_spring).x*+b.jiggle_amplitude)))
+    eulerRot = Euler((math.radians(Vector(b.jiggle_spring).z*-b.jiggle_amplitude*rate), math.radians(Vector(b.jiggle_spring).y*-b.jiggle_amplitude*rate),math.radians(Vector(b.jiggle_spring).x*+b.jiggle_amplitude*rate)))
     #translation matrix
     if not b.bone.use_connect:
         trans = Matrix.Translation(local_spring.translation * b.jiggle_translation)
@@ -747,6 +748,12 @@ def jiggle_tree_pre(jiggle_tree,ob=None):
 #post assumes pre has ensured jiggle tree items exist?                  
 def jiggle_tree_post2(jiggle_tree, ob=None, parent=None, new_parent_mat=None):
     if bpy.context.scene.jiggle_enable:
+        
+        if bpy.context.scene.jiggle_use_fps_scale:
+            bpy.context.scene.jiggle_rate = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base / bpy.context.scene.jiggle_base_fps
+        else:
+            bpy.context.scene.jiggle_rate = 1.0
+            
         for item in jiggle_tree:
             if 'bones' in jiggle_tree[item]:
                 jiggle_tree_post2(jiggle_tree[item]['bones'], bpy.data.objects[item])
@@ -912,6 +919,12 @@ class JiggleScenePanel(bpy.types.Panel):
     
     def draw(self,context):
        layout = self.layout
+       layout.use_property_split = True
+       col = layout.column()
+       col.prop(context.scene, 'jiggle_use_fps_scale')
+       col = col.column()
+       col.prop(context.scene, 'jiggle_base_fps')
+       col.enabled = context.scene.jiggle_use_fps_scale
 #        layout.prop(context.scene, 'jiggle_enable')
 
 class JiggleArmaturePanel(bpy.types.Panel):
@@ -982,6 +995,18 @@ def register():
         default = True,
         update = jiggle_list_refresh_ui
     )
+    bpy.types.Scene.jiggle_use_fps_scale = bpy.props.BoolProperty(
+        name = 'Frame Rate Scaling',
+        description = 'Physics rate scales to match frame rate',
+        default = False
+    )
+    bpy.types.Scene.jiggle_base_fps = bpy.props.FloatProperty(
+        name = 'Base Frame Rate',
+        description = 'The physics frame rate to match',
+        default = 24.0
+    )
+    bpy.types.Scene.jiggle_rate = bpy.props.FloatProperty(name='Rate',default=1.0)
+    
     mask_enum = [
         ('SCENE','Scene','scene mask'),
         ('ARMATURE','Armature', 'armature mask'),
@@ -1119,7 +1144,7 @@ if __name__ == "__main__":
 #       -maintain volume must come after child of or it'll freak out
 #       -track to must come before child of or results will be weird
 
-#cleanup: cleared out some old code, much reamins!
+#cleanup: cleared out some old code, much remains!
 
 #TODO
 
