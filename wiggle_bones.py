@@ -549,8 +549,13 @@ def relative_vector(m1,m2):
 #    print('no r_slice')
 #    return None
 
-def bone_reset(b):
+def reset_bone(b):
+    #jiggle_bone_pre(b)
+    #bpy.context.view_layer.update()
     b.jiggle_spring = b.jiggle_spring2 = b.jiggle_velocity = b.jiggle_velocity2 = Vector((0,0,0))
+    #b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+    
     
 
 ######## NEW STUFF STARTS #######################################################################
@@ -589,7 +594,6 @@ def jiggle_bone_post(b, new_b_mat):
     
 #    rate = bpy.context.scene.render.fps/bpy.context.scene.render.fps_base/24
     rate = bpy.context.scene.jiggle_rate
-    print(rate)
     
     #translational movement between frames in bone's >>previous<< orientation space
     vec = relative_vector(Matrix(b['jiggle_mat']), b.id_data.matrix_world @ new_b_mat) * -1
@@ -649,7 +653,7 @@ def jiggle_bone_post(b, new_b_mat):
     local_spring = t2.to_quaternion().to_matrix().to_4x4().inverted() @ Matrix.Translation(b.jiggle_spring2)
     
     #first frame or inactive should not consider any previous frame
-    if (bpy.context.scene.frame_current == bpy.context.scene.frame_start) or not b.jiggle_active:
+    if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or not b.jiggle_active:
         vec = Vector((0,0,0))
         vecy = 0
         deltarot = Vector((0,0,0))
@@ -767,8 +771,27 @@ def jiggle_tree_post2(jiggle_tree, ob=None, parent=None, new_parent_mat=None):
                     new_b_mat = b.matrix
                 new_p_mat = jiggle_bone_post(b, new_b_mat) #jiggle_bone_post should be updated to do all calcs on new_b_mat
                 jiggle_tree_post2(jiggle_tree[item]['children'], ob, b, new_p_mat)
-                if (bpy.context.scene.frame_current == bpy.context.scene.frame_start) or not b.jiggle_enable: #if not jiggle enabled, it not it the list so this seems pointless?
+                if ((bpy.context.scene.frame_current == bpy.context.scene.frame_start) and bpy.context.scene.jiggle_reset) or not b.jiggle_enable: #if not jiggle enabled, it not it the list so this seems pointless?
                     b['jiggle_mat']=b.id_data.matrix_world @ b.matrix
+                    
+def reset_jiggle_tree(jiggle_tree, ob=None):
+    if bpy.context.scene.jiggle_enable:
+        for item in jiggle_tree:
+            if 'bones' in jiggle_tree[item]:
+                #process objects
+                if item in bpy.data.objects:
+                    reset_jiggle_tree(jiggle_tree[item]['bones'], bpy.data.objects[item])
+                    reset_jiggle_tree(jiggle_tree[item]['children'])
+                else:
+                    generate_jiggle_tree()
+            else:
+                #process bones
+                if item in ob.pose.bones:
+                    b = ob.pose.bones[item]
+                    reset_bone(b)
+                    reset_jiggle_tree(jiggle_tree[item]['children'], ob)
+                else:
+                    generate_jiggle_tree()
                     
 @persistent
 def jiggle_pre(self):
@@ -800,7 +823,20 @@ def select_bones(bone_tree, ob):
     for bone in bone_tree:
         ob.pose.bones[bone].bone.select = True
         select_bones(bone_tree[bone]['children'], ob)
+
+class reset_wiggle(bpy.types.Operator):
+    """Reset wiggle physics"""
+    bl_idname = "id.reset_wiggle"
+    bl_label = "Reset Physics State"
     
+    @classmethod
+    def poll(cls,context):
+        return True
+    
+    def execute(self,context):
+        jiggle_tree = bpy.context.scene['jiggle_tree'].to_dict()
+        reset_jiggle_tree(jiggle_tree)   
+        return {'FINISHED'}
 
 class select_wiggle_bones(bpy.types.Operator):
     """Select wiggle bones in this armature"""
@@ -832,12 +868,28 @@ class bake_jiggle(bpy.types.Operator):
         ob = context.object
         #push active action into nla
 #        bpy.context.area.type = "NLA_EDITOR"
-        override = bpy.context.copy()
-        override['area'].type = 'NLA_EDITOR'
-        bpy.ops.nla.action_pushdown(override)
+        if ob.animation_data:
+            if ob.animation_data.action:
+                action = ob.animation_data.action
+                track = ob.animation_data.nla_tracks.new()
+                track.strips.new(action.name, action.frame_range[0], action)
+                ob.animation_data.action = None
+        else:
+            ob.animation_data.create()
+            ob.animation_data.use_nla = True
+#        override = bpy.context.copy()
+#        override['area'].type = 'NLA_EDITOR'
+#        override['object'] = ob
+#        bpy.ops.nla.action_pushdown(override)
         #set animation slot to additive
         ob.animation_data.action_blend_type = 'ADD'
         #bake bones - start to end, active bones, don't clear constraints
+        if not context.scene.jiggle_reset:
+            #prewarm loop
+            for frame in range(context.scene.frame_start,context.scene.frame_end):
+                context.scene.frame_set(frame)
+                if frame == context.scene.frame_start:
+                    bpy.ops.id.reset_wiggle()
         bpy.ops.nla.bake(frame_start = context.scene.frame_start, frame_end = context.scene.frame_end)
         #turn off dynamics according to bpy.context.scene.jiggle_disable_mask
         mask = context.scene.jiggle_disable_mask
@@ -903,6 +955,10 @@ class JiggleBonePanel(bpy.types.Panel):
         layout.separator()
         
         col = layout.column()
+        col.label(text="Global Wiggle Utilities:")
+        col.operator("id.reset_wiggle")
+        col.prop(context.scene, 'jiggle_reset')
+        col.separator()
         col.operator("id.select_wiggle")
         col.operator("id.bake_wiggle")
         layout.prop(context.scene,"jiggle_disable_mask",text="Bake disables wiggle:")
@@ -921,6 +977,7 @@ class JiggleScenePanel(bpy.types.Panel):
        layout = self.layout
        layout.use_property_split = True
        col = layout.column()
+       col.prop(context.scene, 'jiggle_reset')
        col.prop(context.scene, 'jiggle_use_fps_scale')
        col = col.column()
        col.prop(context.scene, 'jiggle_base_fps')
@@ -981,6 +1038,7 @@ def register():
     bpy.utils.register_class(JiggleArmaturePanel)
     bpy.utils.register_class(JiggleColliderPanel)
     bpy.utils.register_class(bake_jiggle)
+    bpy.utils.register_class(reset_wiggle)
     bpy.utils.register_class(select_wiggle_bones)
     
     bpy.types.PoseBone.jiggle_spring = bpy.props.FloatVectorProperty(default=Vector((0,0,0)))
@@ -994,6 +1052,11 @@ def register():
         description = 'Global toggle for all jiggle bones',
         default = True,
         update = jiggle_list_refresh_ui
+    )
+    bpy.types.Scene.jiggle_reset = bpy.props.BoolProperty(
+        name = 'Reset on Loop',
+        description = 'Jiggle physics reset when looping playback',
+        default = True
     )
     bpy.types.Scene.jiggle_use_fps_scale = bpy.props.BoolProperty(
         name = 'Frame Rate Scaling',
@@ -1116,6 +1179,7 @@ def unregister():
     
     bpy.utils.unregister_class(bake_jiggle)
     bpy.utils.unregister_class(select_wiggle_bones)
+    bpy.utils.unregister_class(reset_wiggle)
     
     bpy.app.handlers.frame_change_pre.remove(jiggle_pre)
     bpy.app.handlers.frame_change_post.remove(jiggle_post)
@@ -1129,8 +1193,10 @@ if __name__ == "__main__":
 
 #bugfix: translational jiggle not reset on startframe
 #bugfix: bake operator didn't like channel index specified
-#feature: active toggle useful for animating a preroll
+#feature: active toggle useful for animating a preroll without jiggle
 #feature: operator to select other enabled wiggle bones in armature 
+#feature: frame rate scaling of jiggle physics
+#feature: looping physics toggle
 
 #1.5 CHANGELOG
 
