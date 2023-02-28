@@ -56,7 +56,7 @@ def generate_jiggle_tree_bones(ob):
 
 def generate_jiggle_tree():             
     #iterate through all objects and construct jiggle collider master list
-    #print('REFRESH LIST')
+    print('REFRESH JIGGLE LIST')
     
     nodes = {}
     #iterate through objects
@@ -76,7 +76,9 @@ def generate_jiggle_tree():
     bpy.context.scene['jiggle_tree'] = tree #json.dumps(tree)
     
 ##################### NEW STUFF ENDS ##################################
-                   
+def update_tree(self,context):
+    generate_jiggle_tree()
+                       
 def jiggle_list_refresh_ui(self,context):
     global skip
     if (skip):
@@ -97,6 +99,7 @@ def jiggle_list_refresh_ui(self,context):
                 else:
                     b['rot_start']=b.rotation_euler.copy()
                 b['loc_start'] = b.location.copy()
+                b['scale_start'] = b.scale.copy()
             
     #apply to other selected colliders:
     a = bpy.context.active_object
@@ -561,7 +564,7 @@ def reset_bone(b):
 ######## NEW STUFF STARTS #######################################################################
 
 def jiggle_bone_pre(b):
-    b.scale.y = 1
+    b.scale.y = Vector(b['scale_start']).y
     if b.rotation_mode == 'QUATERNION':
         try:
             b.rotation_quaternion = Euler(b['rot_start']).to_quaternion()
@@ -710,6 +713,7 @@ def jiggle_bone_post(b, new_b_mat):
 #    
 #    else:
     
+    #this is a scale multiplier on keyed bones, but need to account for jiggle pre state
     s = (1+(local_spring.translation.y*b.jiggle_stretch))
     s_mat = Matrix.Scale(s, 4, Vector((0,1,0)))  
     
@@ -866,34 +870,33 @@ class bake_jiggle(bpy.types.Operator):
     
     def execute(self,context):
         ob = context.object
-        #push active action into nla
-#        bpy.context.area.type = "NLA_EDITOR"
-        if ob.animation_data:
-            if ob.animation_data.action:
-                action = ob.animation_data.action
-                track = ob.animation_data.nla_tracks.new()
-                track.strips.new(action.name, action.frame_range[0], action)
-                ob.animation_data.action = None
+        if context.scene.jiggle_bake_additive:
+            if ob.animation_data:
+                if ob.animation_data.action:
+                    action = ob.animation_data.action
+                    track = ob.animation_data.nla_tracks.new()
+                    track.strips.new(action.name, action.frame_range[0], action)
+                    ob.animation_data.action = None
+            else:
+                ob.animation_data.create()
+                ob.animation_data.use_nla = True
+            ob.animation_data.action_blend_type = 'ADD'
         else:
-            ob.animation_data.create()
-            ob.animation_data.use_nla = True
-#        override = bpy.context.copy()
-#        override['area'].type = 'NLA_EDITOR'
-#        override['object'] = ob
-#        bpy.ops.nla.action_pushdown(override)
-        #set animation slot to additive
-        ob.animation_data.action_blend_type = 'ADD'
-        #bake bones - start to end, active bones, don't clear constraints
+            if ob.animation_data:
+                ob.animation_data.action_blend_type = 'REPLACE'
+            
         if not context.scene.jiggle_reset:
             #prewarm loop
             for frame in range(context.scene.frame_start,context.scene.frame_end):
                 context.scene.frame_set(frame)
                 if frame == context.scene.frame_start:
                     bpy.ops.id.reset_wiggle()
+                    
+        #bake bones - start to end, active bones, don't clear constraints
         bpy.ops.nla.bake(frame_start = context.scene.frame_start, frame_end = context.scene.frame_end)
+        
         #turn off dynamics according to bpy.context.scene.jiggle_disable_mask
         mask = context.scene.jiggle_disable_mask
-        #context.object.data.jiggle_enable = False
         if mask == 'BONES':
             for b in bpy.context.selected_pose_bones:
                 b.jiggle_enable = False
@@ -961,6 +964,7 @@ class JiggleBonePanel(bpy.types.Panel):
         col.separator()
         col.operator("id.select_wiggle")
         col.operator("id.bake_wiggle")
+        layout.prop(context.scene, 'jiggle_bake_additive')
         layout.prop(context.scene,"jiggle_disable_mask",text="Bake disables wiggle:")
         
 class JiggleScenePanel(bpy.types.Panel):
@@ -1051,7 +1055,7 @@ def register():
         name = 'Enabled:',
         description = 'Global toggle for all jiggle bones',
         default = True,
-        update = jiggle_list_refresh_ui
+        update = update_tree
     )
     bpy.types.Scene.jiggle_reset = bpy.props.BoolProperty(
         name = 'Reset on Loop',
@@ -1076,11 +1080,17 @@ def register():
         ('BONES','Bones', 'bones mask')
     ]
     bpy.types.Scene.jiggle_disable_mask = bpy.props.EnumProperty(items = mask_enum, name="Disable", default='BONES', description='What to disable after baking')
+
+    bpy.types.Scene.jiggle_bake_additive = bpy.props.BoolProperty(
+        name = 'Additive Bake:',
+        description = 'Push any current action to NLA and create additive jiggle on top',
+        default = True
+    )
     bpy.types.Armature.jiggle_enable = bpy.props.BoolProperty(
         name = 'Enabled:',
         description = 'Toggle Dynamic jiggle bones on this armature',
         default = True,
-        update = jiggle_list_refresh_ui
+        update = update_tree
     )
     bpy.types.Scene.jiggle_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
     bpy.types.Scene.jiggle_collider_list = bpy.props.CollectionProperty(type=jiggle_bone_item)
@@ -1211,6 +1221,11 @@ if __name__ == "__main__":
 #       -track to must come before child of or results will be weird
 
 #cleanup: cleared out some old code, much remains!
+
+#b12:
+#scale respects initial scale when jiggle enabled
+#post bake disabling shouldn't mess up bone enabled states anymore
+#additive is optional when baking wiggle
 
 #TODO
 
