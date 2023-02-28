@@ -879,10 +879,10 @@ class bake_jiggle(bpy.types.Operator):
                 if ob.animation_data.action:
                     action = ob.animation_data.action
                     track = ob.animation_data.nla_tracks.new()
-                    track.strips.new(action.name, action.frame_range[0], action)
+                    track.strips.new(action.name, int(action.frame_range[0]), action)
                     ob.animation_data.action = None
             else:
-                ob.animation_data.create()
+                ob.animation_data_create()
                 ob.animation_data.use_nla = True
             ob.animation_data.action_blend_type = 'ADD'
         else:
